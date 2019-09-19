@@ -4,7 +4,7 @@ import re
 import json
 from pprint import pprint
 import q
-
+import datetime
 import lib
 
 import subprocess
@@ -75,21 +75,34 @@ class Renderer:
                     continue
                 seen_counter = []
                 for i in test_failures:
-                    if i.gh_playbook_url() == test_failure.gh_playbook_url():
-                        i.seen = True
-                        if i.job['id'] != test_failure.job['id']:
-                            seen_counter.append(i.job_url())
+                    if i.test['testName'] == test_failure.test['testName']:
+                        if i.job['env'][0] == test_failure.job['env'][0]:
+                            if not (test_failure.playbook_path() and (i.playbook_path() != test_failure.playbook_path())):
+                                i.seen = True
+                                if i.job['id'] != test_failure.job['id']:
+                                    seen_counter.append(i.job_url())
+                known_as = look_up_failure(test_failure)
+                # Note: a dup may have a different value in statusCode
+                temporary_error=('Temporary error' in known_as or test_failure.job['statusCode'] == 50)
                 fd.write("""
                 <ul><li>👿 <a href="{job_url}">{testName}</a></li>\n
-                <li>🌿branch: {branch}</li> <a href="{gh_playbook_url}">📁playbook task</a></li>\n
+                <li>🌿branch: {branch}</li>\n
                 <li>🧮env: {env}</li>\n
+                <li>statusCode: {status_code}</li>\n
+                <li>Temporary error: {temporary_error}</li>\n
                 \n""".format(
                     testName=test_failure.test['testName'],
                     job_url=test_failure.job_url(),
                     env=test_failure.job['env'][0],
                     branch=test_failure.job['branchName'],
-                    gh_playbook_url=test_failure.gh_playbook_url(),
+                    status_code=test_failure.job['statusCode'],
+                    temporary_error=temporary_error,
                 ))
+
+                if test_failure.gh_playbook_url():
+                    fd.write("""
+                    <li><a href="{gh_playbook_url}">📁playbook task</a></li>\n""".format(
+                        gh_playbook_url=test_failure.gh_playbook_url()))
 
                 if seen_counter:
                     fd.write('<li>Already seen recently: ')
@@ -97,7 +110,6 @@ class Renderer:
                         fd.write('<a href="' + i + '">🚨</a>')
                     fd.write('</li>')
 
-                known_as = look_up_failure(test_failure)
                 if known_as:
                     fd.write('<strong>See: <a href="{known_as}"></a>{known_as}</strong>'.format(known_as=known_as))
                 else:
@@ -114,14 +126,23 @@ def look_up_failure(test_failure):
         return 'https://github.com/ansible/ansible/issues/61938'
     elif 'Mirror sync in progress?' in test_failure.test['full']:
         return 'Temporary error'
+    elif 'Failed to download packages: Curl error (28): Timeout was reached for https://mirrors.fedoraproject.org' in test_failure.test['full']:
+        return 'Temporary error'
     elif test_failure.job['env'][0].startswith('windows/2016') and 'System.OutOfMemoryException' in test_failure.test['full']:
         return 'https://github.com/ansible/ansible/issues/62365'
-    elif test_failure.job['env'][0].startswith('hcloud') and 'hcloud.hcloud.APIException: <exception str() failed>' in test_failure.test['full']:
+    elif 'hcloud' in test_failure.job['env'][0] and 'hcloud.hcloud.APIException: <exception str() failed>' in test_failure.test['full']:
         return 'https://github.com/ansible/ansible/issues/62560'
+    elif test_failure.job['env'][0].startswith('T=linux/opensuse15') and 'Valid metadata not found at specified URL' in test_failure.test['full']:
+        return 'Temporary error'
+    elif 'Failed to synchronize cache for repo' in test_failure.test['full']:
+        return 'Temporary error'
+    elif 'Failed to download metadata for repo' in test_failure.test['full']:
+        return 'Temporary error'
     return ''
 
-def get_runs(s, project_id=None, branch='devel', limit=10, pull_request=False):
-    response = s.get('https://api.shippable.com/runs?limit={limit}&projectIds={project_id}&branch={branch}&status=failed&isPullRequest={pull_request}'.format(project_id=project_id, branch=branch, limit=limit, pull_request=pull_request))
+def get_runs(s, project_id=None, branch='devel', pull_request=False):
+    created_after = (datetime.datetime.now() - datetime.timedelta(hours=24)).isoformat()
+    response = s.get('https://api.shippable.com/runs?createdAfter={created_after}&projectIds={project_id}&branch={branch}&isPullRequest={pull_request}'.format(project_id=project_id, branch=branch, created_after=created_after, pull_request=pull_request))
 
     q(response.content)
     json_content = []
@@ -163,15 +184,8 @@ s = lib.create_session()
 project_id = lib.get_project_by_name(s, 'ansible/ansible')['id']
 cases = [
         {
-            'branch': 'devel',
+            'branch': 'devel,stable-2.9,stable-2.8,stable-2.7',
             'pull_request': False},
-        {
-            'branch': 'stable-2.9',
-            'pull_request': False},
-        {
-            'branch': 'stable-2.8',
-            'pull_request': False},
-
         ]
 
 base_dir = '/tmp/ansible_ci'
