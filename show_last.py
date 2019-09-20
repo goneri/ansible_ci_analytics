@@ -142,6 +142,7 @@ class Renderer:
                                 if i.end_at() > last_occurence:
                                     last_occurence = i.end_at()
 
+                age = int((datetime.datetime.now(datetime.timezone.utc) - last_occurence).total_seconds() / 3600)
                 # Note: a dup may have a different value in statusCode
                 temporary_error=(is_temporary(test_failure) or (STATUS_UNSTABLE in status_codes))
                 fd.write("""
@@ -156,7 +157,7 @@ class Renderer:
                     job_url=test_failure.job_url(),
                     envs=', '.join(sorted(set(envs))),
                     branches=', '.join(sorted(set(branches))),
-                    last_occurence=int((datetime.datetime.now(datetime.timezone.utc) - last_occurence).total_seconds() / 3600),
+                    last_occurence=age,
                 ))
 
                 if temporary_error:
@@ -169,15 +170,22 @@ class Renderer:
                     <li class="list-group-item"><a href="{gh_playbook_url}">📁playbook task</a></li>\n""".format(
                         gh_playbook_url=test_failure.gh_playbook_url()))
 
-                if seen_counter:
+                if seen_counter and age < 3:
 
-                    fd.write("""<li class="list-group-item alert alert-danger" role="alert">
-
-    ⚠Already seen recently: """)
+                    fd.write("""<li class="list-group-item alert alert-danger" role="alert">⚠Already seen recently: """)
                     for i in seen_counter:
                         fd.write('<a href="' + i + '">🚨</a>')
 
                     fd.write("""</li>""")
+
+                if seen_counter and age > 3:
+
+                    fd.write("""<li class="list-group-item ">👌Problem seems to be resolved: """)
+                    for i in seen_counter:
+                        fd.write('<a href="' + i + '">🦞</a>')
+
+                    fd.write("""</li>""")
+
 
                 if has_open_issue(test_failure):
                     fd.write('<li class="list-group-item"><i class="fa fa-github" aria-hidden="true"></i><a href="{open_issue}">Github link</a></li>'.format(open_issue=has_open_issue(test_failure)))
@@ -190,8 +198,8 @@ class Renderer:
         fd.close()
 
     def upload(self):
-        subprocess.call(['ssh', 'file.rdu.redhat.com', 'rm :~/public_html/ansible_ci/*'])
-        subprocess.call(['scp', '-r', self.base_dir, 'file.rdu.redhat.com:~/public_html/ansible_ci/'])
+        subprocess.call(['ssh', 'file.rdu.redhat.com', 'find ~/public_html/ansible_ci/ -type f -delete'])
+        subprocess.call(['scp', '-r', self.base_dir + '/by_module.html', 'file.rdu.redhat.com:~/public_html/ansible_ci/'])
 
 def is_temporary(test_failure):
     if 'Mirror sync in progress?' in test_failure.test['full']:
