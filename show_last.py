@@ -3,7 +3,6 @@ import os
 import re
 import json
 from pprint import pprint
-import q
 import datetime
 import lib
 import glob
@@ -64,6 +63,10 @@ class TestFailure:
     def end_at(self):
         return dateutil.parser.parse(self.job['endedAt'])
 
+    def age(self):
+        return int((datetime.datetime.now(datetime.timezone.utc) - self.end_at()).total_seconds() / 3600)
+
+
     def save(self):
         file_path = '/tmp/ci_cache/{run_number}_{env}.json'.format(
             run_number=self.run['runNumber'],
@@ -115,8 +118,12 @@ class Renderer:
 
         <body>
         <html>
+        <button class="btn btn-primary" type="button" data-toggle="collapse" data-target=".multi-collapse_temporary_True" aria-expanded="true">Hide temp errors</button>
         """)
+        entry_counter=0
+        multi_collapse_temp_errors = []
         for role_name in sorted(by_module.keys()):
+            entry_counter += 1
             test_failures = by_module[role_name]
             fd.write('<div class="container">')
             fd.write('<h2>{role_name}</h2>'.format(role_name=role_name))
@@ -139,25 +146,28 @@ class Renderer:
                                 status_codes.append(i.job['statusCode'])
                                 envs.append(i.job['env'][0])
                                 seen_counter.append(i.job_url())
-                                if i.end_at() > last_occurence:
-                                    last_occurence = i.end_at()
+                                if i.age() < age:
+                                    last_occurence = i.age()
 
-                age = int((datetime.datetime.now(datetime.timezone.utc) - last_occurence).total_seconds() / 3600)
+                age = test_failure.age()
                 # Note: a dup may have a different value in statusCode
-                temporary_error=(is_temporary(test_failure) or (STATUS_UNSTABLE in status_codes))
+                #temporary_error=(is_temporary(test_failure) or (STATUS_UNSTABLE in status_codes))
+                temporary_error=is_temporary(test_failure)
                 fd.write("""
-                <div class="border p-3 border bg-light">
+                <div class="border p-3 border bg-light collapse show multi-collapse_temporary_{temporary_error}">
                 👿 <a href="{job_url}">{testName}</a>
                 <ul class="list-group list-group-flush">
                 <li class="list-group-item">🌿impacted branches: {branches}</li>\n
                 <li class="list-group-item">🧮envs: {envs}</li>\n
                 <li class="list-group-item">🧮last occurence: {last_occurence} hour(s) ago</li>\n
                 \n""".format(
+                    entry_counter=entry_counter,
                     testName=test_failure.test['testName'],
                     job_url=test_failure.job_url(),
                     envs=', '.join(sorted(set(envs))),
                     branches=', '.join(sorted(set(branches))),
                     last_occurence=age,
+                    temporary_error=temporary_error,
                 ))
 
                 if temporary_error:
@@ -198,8 +208,7 @@ class Renderer:
         fd.close()
 
     def upload(self):
-        subprocess.call(['ssh', 'file.rdu.redhat.com', 'find ~/public_html/ansible_ci/ -type f -delete'])
-        subprocess.call(['scp', '-r', self.base_dir + '/by_module.html', 'file.rdu.redhat.com:~/public_html/ansible_ci/'])
+        subprocess.call(['cp', '-r', self.base_dir + '/by_module.html', '/var/www/html/ansible_ci'])
 
 def is_temporary(test_failure):
     if 'Mirror sync in progress?' in test_failure.test['full']:
@@ -214,12 +223,11 @@ def is_temporary(test_failure):
         return True
     elif 'metadata not found' in test_failure.test['full']:
         return True
-    q(test_failure.test['full'])
     return False
 
 def has_open_issue(test_failure):
     if 'testhost: mongodb_replicaset : Wait for mongod to start responding port=' in test_failure.test['testName']:
-        return 'https://github.com/ansible/ansible/ssuissues/61938'
+        return 'https://github.com/ansible/ansible/issues/61938'
     elif test_failure.job['env'][0].startswith('T=windows/2016') and 'System.OutOfMemoryException' in test_failure.test['full']:
         return 'https://github.com/ansible/ansible/issues/62365'
     elif 'hcloud' in test_failure.job['env'][0] and 'hcloud.hcloud.APIException: <exception str() failed>' in test_failure.test['full']:
