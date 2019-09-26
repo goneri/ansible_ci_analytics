@@ -21,6 +21,8 @@ results = {}
 for run in get_last_successful_runs(s, project_id=project_id):
     for job in s.get('https://api.shippable.com/jobs?runIds={id}&status=success'.format(**run)).json():
         q(job)
+        if job['testsPassed'] == 0:
+            continue
         if job['testsPassed'] < 50 or job['statusCode'] != 30:
             continue
         env = job['env'][0]
