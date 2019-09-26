@@ -126,7 +126,6 @@ class Renderer:
             entry_counter += 1
             test_failures = by_module[role_name]
             fd.write('<div class="container">')
-            fd.write('<h2>{role_name}</h2>'.format(role_name=role_name))
             for test_failure in test_failures:
                 print(test_failure.test['testName'])
                 if hasattr(test_failure, 'seen'):
@@ -155,6 +154,7 @@ class Renderer:
                 temporary_error=is_temporary(test_failure)
                 fd.write("""
                 <div class="border p-3 border bg-light collapse show multi-collapse_temporary_{temporary_error}">
+                <h3>{role_name}</h3>
                 👿 <a href="{job_url}">{testName}</a>
                 <ul class="list-group list-group-flush">
                 <li class="list-group-item">🌿impacted branches: {branches}</li>\n
@@ -167,6 +167,7 @@ class Renderer:
                     envs=', '.join(sorted(set(envs))),
                     branches=', '.join(sorted(set(branches))),
                     last_occurence=age,
+                    role_name=role_name,
                     temporary_error=temporary_error,
                 ))
 
@@ -188,13 +189,13 @@ class Renderer:
 
                     fd.write("""</li>""")
 
-                if seen_counter and age > 3:
+                # if seen_counter and age > 3:
 
-                    fd.write("""<li class="list-group-item ">👌Problem seems to be resolved: """)
-                    for i in seen_counter:
-                        fd.write('<a href="' + i + '">🦞</a>')
+                #     fd.write("""<li class="list-group-item ">👌Problem seems to be resolved: """)
+                #     for i in seen_counter:
+                #         fd.write('<a href="' + i + '">🦞</a>')
 
-                    fd.write("""</li>""")
+                #     fd.write("""</li>""")
 
 
                 if has_open_issue(test_failure):
@@ -229,6 +230,8 @@ def is_temporary(test_failure):
         return True
     elif 'One of the configured repositories failed' in test_failure.test['full']:
         return True
+    elif 'Failed to download packages:'  in test_failure.test['full']:
+        return True
     return False
 
 def has_open_issue(test_failure):
@@ -260,21 +263,22 @@ def collect_test_failures(s, run):
     response = s.get('https://api.shippable.com/jobs?runIds={id}&status=failed,timeout,unstable'.format(**run))
     test_failures = []
     for job in response.json():
+        if job['testsPassed'] == 0:
+            continue
         testReports = s.get('https://api.shippable.com/jobs/{id}/jobTestReports'.format(**job)).json()
         # We only focus on the first error, the others are likely to be consequence of the first one
         raw_contents = testReports[-1]['contents']
         if raw_contents.startswith('{'):
             contents = json.loads(testReports[-1]['contents'])
-            if 'failureDetails' in contents:
-                details = contents['errorDetails'] or contents['failureDetails']
-                if not details:
-                    continue
-                test_failure = TestFailure(
-                    run=run,
-                    job=job,
-                    #test=contents['failureDetails'][0])
-                    test=details[0])
-                test_failures.append(test_failure)
+            details = contents.get('errorDetails') or contents.get('failureDetails')
+            if not details:
+                continue
+            test_failure = TestFailure(
+                run=run,
+                job=job,
+                #test=contents['failureDetails'][0])
+                test=details[0])
+            test_failures.append(test_failure)
     return test_failures
 
 import argparse
