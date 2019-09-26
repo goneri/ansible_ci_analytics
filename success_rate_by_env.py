@@ -1,7 +1,6 @@
 import requests
 import os
 import lib
-import dateutil.parser
 import functools
 import datetime
 
@@ -31,7 +30,7 @@ def get_success_rates(branch):
         success_rates[env] = int(len([i for i in r if i == 30]) / len(r) * 100)
     return success_rates
 
-fd = open('/var/www/html/ansible_ci/.succes_rate_by_env.html', 'w')
+fd = open('/var/www/html/ansible_ci/.success_rate_by_env.html', 'w')
 fd.write("""
 <!doctype html>
 <html lang="en">
@@ -52,7 +51,6 @@ fd.write("""
 
         <body>
         <html>
-        <button class="btn btn-primary" type="button" data-toggle="collapse" data-target=".multi-collapse_temporary_True" aria-expanded="true">Hide temp errors</button>
 <h1>success rate per env during the last 24h</h1>
 """)
 
@@ -82,4 +80,4 @@ for branch in ['devel', 'stable-2.8', 'stable-2.9']:
         fd.write('<tr class="{_class}"><th>{env}</th><th>{success_rate}</th></tr>'.format(env=env, success_rate=success_rate, _class=_class))
     fd.write('</tbody></table>')
 
-os.rename('/var/www/html/ansible_ci/.succes_rate_by_env.html', '/var/www/html/ansible_ci/succes_rate_by_env.html')
+os.rename('/var/www/html/ansible_ci/.success_rate_by_env.html', '/var/www/html/ansible_ci/success_rate_by_env.html')
