@@ -225,6 +225,8 @@ def is_temporary(test_failure):
         return True
     elif 'Failure downloading http://archive.ubuntu.com' in test_failure.test['full']:
         return True
+    elif 'Cannot retrieve metalink for repository' in test_failure.test['full']:
+        return True
     return False
 
 def has_open_issue(test_failure):
