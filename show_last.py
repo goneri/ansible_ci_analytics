@@ -223,6 +223,8 @@ def is_temporary(test_failure):
         return True
     elif 'metadata not found' in test_failure.test['full']:
         return True
+    elif 'Failure downloading http://archive.ubuntu.com' in test_failure.test['full']:
+        return True
     return False
 
 def has_open_issue(test_failure):
