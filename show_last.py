@@ -213,7 +213,7 @@ class Renderer:
 def is_temporary(test_failure):
     if 'Mirror sync in progress?' in test_failure.test['full']:
         return True
-    elif 'Failed to download packages: Curl error (28): Timeout was reached for https://mirrors.fedoraproject.org' in test_failure.test['full']:
+    elif 'Failed to download packages: Curl error' in test_failure.test['full']:
         return True
     elif test_failure.job['env'][0].startswith('T=linux/opensuse15') and 'Valid metadata not found at specified URL' in test_failure.test['full']:
         return True
@@ -226,6 +226,8 @@ def is_temporary(test_failure):
     elif 'Failure downloading http://archive.ubuntu.com' in test_failure.test['full']:
         return True
     elif 'Cannot retrieve metalink for repository' in test_failure.test['full']:
+        return True
+    elif 'One of the configured repositories failed' in test_failure.test['full']:
         return True
     return False
 
