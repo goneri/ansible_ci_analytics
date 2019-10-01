@@ -16,72 +16,6 @@ STATUS_FAILURE=80
 STATUS_UNSTABLE=50
 STATUS_SUCCESS=30
 
-class TestFailure:
-
-    def __init__(self, run, job, test):
-        self.run = run
-        self.job = job
-        self.test = test
-
-    def playbook_path(self):
-        if 'ÅÑŚÌβŁÈ' in self.test['className']:
-            return self.test['className'].split('ÅÑŚÌβŁÈ')[1].split(':')[0]
-
-    def playbook_line(self):
-        if 'ÅÑŚÌβŁÈ' in self.test['className']:
-            return self.test['className'].split('ÅÑŚÌβŁÈ')[1].split(':')[1]
-
-    def role_name(self):
-        if self.playbook_path():
-            return self.playbook_path().split('/')[-3]
-        elif self.test['testName'] == 'timeout':
-            return '⏰timeout'
-        elif self.test['suiteName'] == 'pytest':
-            return 'pytest'
-
-        m = re.match(r'\[[\w-]+\]\s\w+:\s([_\w]+).*', self.test['testName'])
-        if m:
-            return m.group(1)
-        print('Cannot find the role for:' + self.test['testName'])
-
-    def gh_playbook_url(self):
-        if self.playbook_path():
-            return self.run['projectHtmlUrl'] + '/blob/' + self.run['commitSha'] + self.playbook_path() + '#L' + self.playbook_line()
-
-    def env(self):
-        return self.job['env'][0]
-
-    def run_url(self):
-        return 'https://app.shippable.com/github/ansible/ansible/runs/{runNumber}/summary/console'.format(**self.run)
-
-    def job_url(self):
-        return 'https://app.shippable.com/github/ansible/ansible/runs/{runNumber}/{jobNumber}/tests'.format(**self.job)
-
-    def gh_pr_url(self):
-        return 'https://github.com/ansible/ansible/pull/{pullRequestNumber}'.format(**self.run)
-
-    def end_at(self):
-        return dateutil.parser.parse(self.job['endedAt'])
-
-    def age(self):
-        return int((datetime.datetime.now(datetime.timezone.utc) - self.end_at()).total_seconds() / 3600)
-
-
-    def save(self):
-        file_path = '/tmp/ci_cache/{run_number}_{env}.json'.format(
-            run_number=self.run['runNumber'],
-            env=self.env().replace('/', '_')
-        )
-
-        with open(file_path, 'w') as fd:
-            fd.write(json.dumps([self.run, self.job, self.test]))
-
-    @classmethod
-    def load(cls, file_path):
-         with open(file_path, 'r') as fd:
-             run, job, test = json.load(fd)
-             return cls(run, job, test)
-
 class Renderer:
 
     def __init__(self):
@@ -127,7 +61,6 @@ class Renderer:
             test_failures = by_module[role_name]
             fd.write('<div class="container">')
             for test_failure in test_failures:
-                print(test_failure.test['testName'])
                 if hasattr(test_failure, 'seen'):
                     continue
                 seen_counter = []
@@ -151,7 +84,7 @@ class Renderer:
                 age = test_failure.age()
                 # Note: a dup may have a different value in statusCode
                 #temporary_error=(is_temporary(test_failure) or (STATUS_UNSTABLE in status_codes))
-                temporary_error=is_temporary(test_failure)
+                temporary_error=lib.is_temporary(test_failure)
                 fd.write("""
                 <div class="border p-3 border bg-light collapse show multi-collapse_temporary_{temporary_error}">
                 <h3>{role_name}</h3>
@@ -211,29 +144,6 @@ class Renderer:
     def upload(self):
         subprocess.call(['cp', '-r', self.base_dir + '/by_module.html', '/var/www/html/ansible_ci'])
 
-def is_temporary(test_failure):
-    if 'Mirror sync in progress?' in test_failure.test['full']:
-        return True
-    elif 'Failed to download packages: Curl error' in test_failure.test['full']:
-        return True
-    elif test_failure.job['env'][0].startswith('T=linux/opensuse15') and 'Valid metadata not found at specified URL' in test_failure.test['full']:
-        return True
-    elif 'Failed to synchronize cache for repo' in test_failure.test['full']:
-        return True
-    elif 'Failed to download metadata for repo' in test_failure.test['full']:
-        return True
-    elif 'metadata not found' in test_failure.test['full']:
-        return True
-    elif 'Failure downloading http://archive.ubuntu.com' in test_failure.test['full']:
-        return True
-    elif 'Cannot retrieve metalink for repository' in test_failure.test['full']:
-        return True
-    elif 'One of the configured repositories failed' in test_failure.test['full']:
-        return True
-    elif 'Failed to download packages:'  in test_failure.test['full']:
-        return True
-    return False
-
 def has_open_issue(test_failure):
     if 'testhost: mongodb_replicaset : Wait for mongod to start responding port=' in test_failure.test['testName']:
         return 'https://github.com/ansible/ansible/issues/61938'
@@ -245,6 +155,8 @@ def has_open_issue(test_failure):
         return  'https://github.com/ansible/ansible/issues/62606'
     elif re.match(r'.*kubernetes-validate python library is required to validate resources.*', test_failure.test['testName']):
         return 'https://github.com/ansible/ansible/pull/62635'
+    elif test_failure.role_name() == 'hcloud_volume_info' and '_raise_exception_from_json_content' in test_failure.test['full']:
+        return 'https://github.com/ansible/ansible/issues/63019'
 
 def get_runs(s, project_id=None, branch='devel', pull_request=False):
     created_after = (datetime.datetime.now() - datetime.timedelta(hours=24)).isoformat()
@@ -273,7 +185,7 @@ def collect_test_failures(s, run):
             details = contents.get('errorDetails') or contents.get('failureDetails')
             if not details:
                 continue
-            test_failure = TestFailure(
+            test_failure = lib.TestFailure(
                 run=run,
                 job=job,
                 #test=contents['failureDetails'][0])
@@ -302,7 +214,7 @@ if args.refresh_cache:
 
 renderer = Renderer()
 for i in glob.glob('/tmp/ci_cache/*.json'):
-    test_failure = TestFailure.load(i)
+    test_failure = lib.TestFailure.load(i)
     renderer.test_failures.append(test_failure)
 
 renderer.render_by_module()
