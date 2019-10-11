@@ -67,7 +67,7 @@ class Renderer:
                 branches = [test_failure.job['branchName']]
                 status_codes = [test_failure.job['statusCode']]
                 envs = [test_failure.job['env'][0]]
-                last_occurence = test_failure.end_at()
+                age = test_failure.age()
                 # Merge the similar failures
                 for i in test_failures:
                     if i.test['testName'] == test_failure.test['testName']:
@@ -78,10 +78,9 @@ class Renderer:
                                 status_codes.append(i.job['statusCode'])
                                 envs.append(i.job['env'][0])
                                 seen_counter.append(i.job_url())
-                                if i.age() < age:
-                                    last_occurence = i.age()
+                                if i.age() < test_failure.age():
+                                    age = i.age()
 
-                age = test_failure.age()
                 # Note: a dup may have a different value in statusCode
                 #temporary_error=(is_temporary(test_failure) or (STATUS_UNSTABLE in status_codes))
                 temporary_error=lib.is_temporary(test_failure)
@@ -92,14 +91,14 @@ class Renderer:
                 <ul class="list-group list-group-flush">
                 <li class="list-group-item">🌿impacted branches: {branches}</li>\n
                 <li class="list-group-item">🧮envs: {envs}</li>\n
-                <li class="list-group-item">🧮last occurence: {last_occurence} hour(s) ago</li>\n
+                <li class="list-group-item">🧮last occurence: {age} hour(s) ago</li>\n
                 \n""".format(
                     entry_counter=entry_counter,
                     testName=test_failure.test['testName'],
                     job_url=test_failure.job_url(),
                     envs=', '.join(sorted(set(envs))),
                     branches=', '.join(sorted(set(branches))),
-                    last_occurence=age,
+                    age=age,
                     role_name=role_name,
                     temporary_error=temporary_error,
                 ))
@@ -177,7 +176,8 @@ def collect_test_failures(s, run):
     for job in response.json():
         if job['testsPassed'] == 0:
             continue
-        testReports = s.get('https://api.shippable.com/jobs/{id}/jobTestReports'.format(**job)).json()
+        r = s.get('https://api.shippable.com/jobs/{id}/jobTestReports'.format(**job))
+        testReports = r.json()
         # We only focus on the first error, the others are likely to be consequence of the first one
         raw_contents = testReports[-1]['contents']
         if raw_contents.startswith('{'):
